@@ -172,7 +172,7 @@ func (s *Service) buildVerificationPackage(ctx context.Context, projectID string
 	s.verificationMu.RLock()
 	if cached, ok := s.verificationCache[cacheKey]; ok {
 		s.verificationMu.RUnlock()
-		return cached.pack, cached.integrity, nil
+		return cloneVerificationPackage(cached.pack), cloneManifestIntegrity(cached.integrity), nil
 	}
 	s.verificationMu.RUnlock()
 	manifest, err := s.repo.Manifest(ctx, projectID)
@@ -198,7 +198,30 @@ func (s *Service) buildVerificationPackage(ctx context.Context, projectID string
 		s.verificationCache[cacheKey] = verificationCacheEntry{pack: pack, integrity: integrity}
 		s.verificationMu.Unlock()
 	}
-	return pack, integrity, nil
+	return cloneVerificationPackage(pack), cloneManifestIntegrity(integrity), nil
+}
+
+// cloneVerificationPackage returns a deep copy of the package so callers cannot
+// mutate the cached frozen snapshot through the returned Captions slice.
+// CaptionCue contains only value types, so copying the slice elements is
+// sufficient.
+func cloneVerificationPackage(pack *domain.VerificationPackage) *domain.VerificationPackage {
+	if pack == nil {
+		return nil
+	}
+	clone := *pack
+	clone.Captions = append([]domain.CaptionCue(nil), pack.Captions...)
+	return &clone
+}
+
+// cloneManifestIntegrity returns a deep copy of the integrity report so callers
+// cannot mutate the cached Checks slice. IntegrityItem fields are immutable
+// value types (string, bool, any holding value types), so a shallow copy of the
+// slice is a full deep copy.
+func cloneManifestIntegrity(integrity domain.ManifestIntegrity) domain.ManifestIntegrity {
+	clone := integrity
+	clone.Checks = append([]domain.IntegrityItem(nil), integrity.Checks...)
+	return clone
 }
 
 func (s *Service) SearchCues(ctx context.Context, projectID string, query domain.CueSearchQuery) (*domain.CueSearchResult, error) {
