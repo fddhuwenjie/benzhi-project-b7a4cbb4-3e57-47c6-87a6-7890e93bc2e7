@@ -9,6 +9,7 @@ const (
 	CodeNotFound  ErrorCode = "not_found"
 	CodeConflict  ErrorCode = "conflict"
 	CodeForbidden ErrorCode = "forbidden"
+	CodeCorrupt   ErrorCode = "corrupt"
 )
 
 type BusinessError struct {
@@ -16,6 +17,7 @@ type BusinessError struct {
 	Message string         `json:"message"`
 	Fields  []string       `json:"fields,omitempty"`
 	Details map[string]any `json:"details,omitempty"`
+	Reasons []string       `json:"reasons,omitempty"`
 }
 
 func (e *BusinessError) Error() string { return e.Message }
@@ -34,6 +36,14 @@ func ConflictWithDetails(message string, details map[string]any) error {
 
 func Forbidden(message string) error {
 	return &BusinessError{Code: CodeForbidden, Message: message}
+}
+
+func Corrupt(kind, id, reason string) error {
+	return &BusinessError{Code: CodeCorrupt, Message: fmt.Sprintf("%s %s 数据损坏：%s", kind, id, reason), Fields: []string{kind}, Reasons: []string{reason}}
+}
+
+func CorruptBatch(kind string, reasons []string) error {
+	return &BusinessError{Code: CodeCorrupt, Message: fmt.Sprintf("%s 存在 %d 条无法解析的损坏记录", kind, len(reasons)), Fields: []string{kind}, Reasons: reasons}
 }
 
 func NotFound(kind, id string) error {

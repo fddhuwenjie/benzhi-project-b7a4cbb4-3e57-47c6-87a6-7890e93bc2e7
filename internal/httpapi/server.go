@@ -747,6 +747,8 @@ func (s *Server) writeError(w http.ResponseWriter, err error) {
 			status = http.StatusConflict
 		case domain.CodeForbidden:
 			status = http.StatusForbidden
+		case domain.CodeCorrupt:
+			status = http.StatusUnprocessableEntity
 		}
 		writeJSON(w, status, map[string]any{"error": business})
 		return

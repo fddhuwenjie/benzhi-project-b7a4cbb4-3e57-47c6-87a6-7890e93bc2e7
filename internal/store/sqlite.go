@@ -506,7 +506,8 @@ func (s *SQLite) AuditQuery(ctx context.Context, projectID string, q domain.Audi
 		return domain.AuditPage{}, err
 	}
 	defer rows.Close()
-	items := []domain.AuditEvent{}
+	items := make([]domain.AuditEvent, 0, limit+1)
+	parseErrors := make([]string, 0)
 	for rows.Next() {
 		var item domain.AuditEvent
 		var detail []byte
@@ -516,12 +517,14 @@ func (s *SQLite) AuditQuery(ctx context.Context, projectID string, q domain.Audi
 			return domain.AuditPage{}, err
 		}
 		if err := json.Unmarshal(detail, &item.Detail); err != nil {
-			// 损坏的历史载荷被跳过，避免单行数据中止整页读取；汇总查询仍会计入该行。
+			// 损坏的历史载荷不再被静默跳过：返回包含具体解析原因的错误响应，
+			// 使客户端能感知到记录异常。汇总行为随列表保持一致。
+			parseErrors = append(parseErrors, fmt.Sprintf("事件 %d：detail_json 解析失败：%s", item.ID, err.Error()))
 			continue
 		}
 		parsedAt, err := time.Parse(time.RFC3339Nano, created)
 		if err != nil {
-			// 时间戳损坏时同样跳过该事件，汇总仍会保留数据库计数。
+			parseErrors = append(parseErrors, fmt.Sprintf("事件 %d：created_at 不是合法 RFC3339 时间戳：%s", item.ID, created))
 			continue
 		}
 		item.CreatedAt = parsedAt
@@ -532,6 +535,9 @@ func (s *SQLite) AuditQuery(ctx context.Context, projectID string, q domain.Audi
 	}
 	if err := rows.Close(); err != nil {
 		return domain.AuditPage{}, err
+	}
+	if len(parseErrors) > 0 {
+		return domain.AuditPage{}, domain.CorruptBatch("audit_events", parseErrors)
 	}
 	page := domain.AuditPage{Events: items, Summary: domain.AuditSummary{ByEventType: map[string]int{}, ByActor: map[string]int{}}}
 	hasMore := len(items) > limit
@@ -589,8 +595,14 @@ func (s *SQLite) AuditEvent(ctx context.Context, projectID string, eventID int64
 	if err != nil {
 		return nil, err
 	}
-	_ = json.Unmarshal(detail, &event.Detail)
-	event.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+	if err := json.Unmarshal(detail, &event.Detail); err != nil {
+		return nil, domain.Corrupt("审计事件", fmt.Sprint(eventID), fmt.Sprintf("detail_json 解析失败：%s", err.Error()))
+	}
+	parsedAt, err := time.Parse(time.RFC3339Nano, created)
+	if err != nil {
+		return nil, domain.Corrupt("审计事件", fmt.Sprint(eventID), fmt.Sprintf("created_at 不是合法 RFC3339 时间戳：%s", created))
+	}
+	event.CreatedAt = parsedAt
 	return &event, nil
 }
 
