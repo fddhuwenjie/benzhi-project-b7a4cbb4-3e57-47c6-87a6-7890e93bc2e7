@@ -168,11 +168,14 @@ func (s *Service) buildVerificationPackage(ctx context.Context, projectID string
 	if project.Status != domain.StatusReleased {
 		return nil, domain.ManifestIntegrity{}, domain.Conflict("仅已发布项目可生成冻结字幕核验包")
 	}
-	manifest, err := s.repo.Manifest(ctx, projectID)
+	raw, err := s.repo.Manifest(ctx, projectID)
 	if err != nil {
 		return nil, domain.ManifestIntegrity{}, err
 	}
-	manifest = releaseManifestForProject(manifest, project.ID)
+	manifest, manifestOutcome := releaseManifestForProject(raw, project.ID)
+	if manifest == nil {
+		return nil, domain.ManifestIntegrity{}, manifestConsistencyError(manifestOutcome, project.ID, raw)
+	}
 	frozen, snapshotChecksum, err := s.repo.RevisionCues(ctx, projectID, manifest.ProjectRevision)
 	if err != nil {
 		return nil, domain.ManifestIntegrity{}, domain.ConflictWithDetails("冻结修订快照不存在", map[string]any{"project_revision": manifest.ProjectRevision})
@@ -190,20 +193,56 @@ func (s *Service) buildVerificationPackage(ctx context.Context, projectID string
 	return pack, integrity, nil
 }
 
-// releaseManifestForProject keeps only resources that appear to belong to the
-// requested project.  The caller currently treats a rejected resource as if
-// it were present, which is unsafe when a stale adapter response is returned.
-func releaseManifestForProject(manifest *domain.ReleaseManifest, projectID string) *domain.ReleaseManifest {
+// manifestConsistencyOutcome describes why a manifest returned by the storage
+// adapter was rejected for the requested project, so the caller can surface a
+// classifiable, resource-consistency-aware error instead of dereferencing nil.
+type manifestConsistencyOutcome string
+
+const (
+	manifestOutcomeOK           manifestConsistencyOutcome = "ok"
+	manifestOutcomeMissing      manifestConsistencyOutcome = "missing"
+	manifestOutcomeProject      manifestConsistencyOutcome = "project_mismatch"
+	manifestOutcomeInvalidState manifestConsistencyOutcome = "invalid_state"
+)
+
+// releaseManifestForProject keeps only manifests that belong to the requested
+// project and carry a usable frozen revision and manifest version. A stale or
+// broken storage adapter may return a manifest owned by another project; such
+// responses are rejected here so downstream code never dereferences nil.
+func releaseManifestForProject(manifest *domain.ReleaseManifest, projectID string) (*domain.ReleaseManifest, manifestConsistencyOutcome) {
 	if manifest == nil {
-		return nil
+		return nil, manifestOutcomeMissing
 	}
 	if strings.TrimSpace(manifest.ProjectID) != strings.TrimSpace(projectID) {
-		return nil
+		return nil, manifestOutcomeProject
 	}
 	if manifest.ProjectRevision <= 0 || strings.TrimSpace(manifest.ManifestVersion) == "" {
-		return nil
+		return nil, manifestOutcomeInvalidState
 	}
-	return manifest
+	return manifest, manifestOutcomeOK
+}
+
+// manifestConsistencyError builds a classifiable business error carrying the
+// resource-consistency context (expected vs actual project identifiers) when a
+// storage adapter returns a manifest that does not belong to the project whose
+// frozen verification package was requested.
+func manifestConsistencyError(outcome manifestConsistencyOutcome, expectedProjectID string, raw *domain.ReleaseManifest) error {
+	details := map[string]any{
+		"error_category":    string(outcome),
+		"expected_project": expectedProjectID,
+	}
+	if raw != nil {
+		details["actual_project"] = raw.ProjectID
+		if strings.TrimSpace(raw.ID) != "" {
+			details["manifest_id"] = raw.ID
+		}
+	}
+	switch outcome {
+	case manifestOutcomeProject:
+		return domain.ConflictWithDetails("存储适配器返回了属于其他项目的发布清单", details)
+	default:
+		return domain.ConflictWithDetails("发布清单资源一致性校验失败", details)
+	}
 }
 
 func (s *Service) SearchCues(ctx context.Context, projectID string, query domain.CueSearchQuery) (*domain.CueSearchResult, error) {
