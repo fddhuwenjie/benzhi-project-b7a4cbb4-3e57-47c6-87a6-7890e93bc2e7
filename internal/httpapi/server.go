@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -737,6 +738,13 @@ func (s *Server) writeMutation(w http.ResponseWriter, status int, result *domain
 }
 
 func (s *Server) writeError(w http.ResponseWriter, err error) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		// Request was cancelled or timed out; surface a recognizable status and stop
+		// processing the response so callers can distinguish cancellation from a
+		// genuine server failure instead of receiving a partial/200 payload.
+		writeJSON(w, statusClientClosed, map[string]any{"error": map[string]string{"code": "client_closed", "message": "客户端已取消请求"}})
+		return
+	}
 	var business *domain.BusinessError
 	if errors.As(err, &business) {
 		status := http.StatusBadRequest

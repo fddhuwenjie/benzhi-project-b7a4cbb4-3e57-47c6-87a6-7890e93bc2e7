@@ -53,17 +53,20 @@ func (s *Service) GetWorkbench(ctx context.Context, projectID string) (*Workbenc
 		view.ReleasePreview = &preview
 	}
 	if project.Status == domain.StatusReleased {
-		s.populateReleasedManifest(ctx, projectID, view)
+		if err := s.populateReleasedManifest(ctx, projectID, view); err != nil {
+			return nil, err
+		}
 	}
 	return view, nil
 }
 
-func (s *Service) populateReleasedManifest(ctx context.Context, projectID string, view *WorkbenchView) {
+func (s *Service) populateReleasedManifest(ctx context.Context, projectID string, view *WorkbenchView) error {
 	manifest, err := s.ManifestReport(ctx, projectID)
 	if err != nil {
-		return
+		return err
 	}
 	view.ManifestReport = manifest
+	return nil
 }
 
 func summarizeQuality(project *domain.CaptionProject) QualitySummary {
