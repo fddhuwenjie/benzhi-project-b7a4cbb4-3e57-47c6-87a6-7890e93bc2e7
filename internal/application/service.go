@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"caption-release-workbench/internal/domain"
@@ -19,10 +18,6 @@ type Service struct {
 	repo domain.Repository
 	now  Clock
 	id   IDGenerator
-
-	readinessMu         sync.Mutex
-	readinessConfirmed  bool
-	readinessValidUntil time.Time
 }
 
 func New(repo domain.Repository) *Service { return &Service{repo: repo, now: time.Now, id: randomID} }
@@ -548,21 +543,7 @@ func (s *Service) CheckHistory(ctx context.Context, id string, f domain.CheckHis
 	return out, nil
 }
 func (s *Service) Ready(ctx context.Context) error {
-	s.readinessMu.Lock()
-	if s.readinessConfirmed && s.now().Before(s.readinessValidUntil) {
-		s.readinessMu.Unlock()
-		return nil
-	}
-	s.readinessMu.Unlock()
-
-	if err := s.repo.Ready(ctx); err != nil {
-		return err
-	}
-	s.readinessMu.Lock()
-	s.readinessConfirmed = true
-	s.readinessValidUntil = s.now().Add(30 * time.Second)
-	s.readinessMu.Unlock()
-	return nil
+	return s.repo.Ready(ctx)
 }
 
 func (s *Service) mutate(ctx context.Context, projectID string, meta WriteMeta, event string, fn func(*domain.CaptionProject) (any, error)) (*domain.MutationResult, bool, error) {
