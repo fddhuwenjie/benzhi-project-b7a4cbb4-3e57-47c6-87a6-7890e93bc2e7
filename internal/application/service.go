@@ -131,8 +131,9 @@ func (s *Service) CreateProject(ctx context.Context, cmd CreateProjectCommand) (
 	if _, findErr := s.repo.FindByMediaChecksum(ctx, project.MediaChecksum); findErr == nil {
 		// 仍进入同一建档事务：存储会先识别 request_id 重放，再由唯一约束
 		// 对真正的重复请求返回原项目信息，且不会留下审计或幂等记录。
-	} else if business, ok := findErr.(*domain.BusinessError); !ok || business.Code != domain.CodeNotFound {
-		return nil, false, findErr
+	} else if business, ok := findErr.(*domain.BusinessError); ok && business.Code == domain.CodeNotFound {
+		// 没有同素材基线项目，继续建档；非 NotFound 的错误（如读取暂时失败）
+		// 也继续进入存储层，以便幂等重放仍能命中已持久化的首次建档结果。
 	}
 	return s.repo.Create(ctx, project, cmd.RequestID, cmd.Actor)
 }
@@ -555,15 +556,19 @@ func (s *Service) mutateDetailed(ctx context.Context, projectID string, meta Wri
 	if err := validateMeta(meta); err != nil {
 		return nil, false, err
 	}
-	project, err := s.repo.Get(ctx, projectID)
-	if err != nil {
-		return nil, false, err
-	}
+	// 加载项目用于丰富审计事件详情。当读取暂时失败时，仍需进入
+	// 存储层：存储会先按 request_id 查找幂等结果，命中则直接重放
+	// 已持久化的首次写入结果，不再执行领域变更；未命中时存储层会
+	// 重新加载项目并返回同样的读取错误。这样避免在响应丢失后的
+	// 重试中，因为本层预读失败而误报操作失败。
+	project, getErr := s.repo.Get(ctx, projectID)
 	if detail == nil {
 		detail = map[string]any{}
 	}
-	detail["status_before"] = project.Status
-	detail["revision_before"] = project.Revision
+	if getErr == nil {
+		detail["status_before"] = project.Status
+		detail["revision_before"] = project.Revision
+	}
 	return s.repo.Mutate(ctx, domain.Mutation{ProjectID: projectID, ExpectedRevision: meta.ExpectedRevision, RequestID: meta.RequestID, EventType: event, Actor: meta.Actor, Detail: detail}, fn)
 }
 
