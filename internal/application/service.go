@@ -444,7 +444,7 @@ func (s *Service) ProjectQueue(ctx context.Context, filter domain.QueueFilter) (
 		cached, generation := s.queueCache[key], s.queueGen
 		s.queueMu.RUnlock()
 		if cached != nil {
-			return cached, nil
+			return cloneProjectQueue(cached), nil
 		}
 		items, stats, err := s.repo.ListFiltered(ctx, filter)
 		if err != nil {
@@ -461,8 +461,62 @@ func (s *Service) ProjectQueue(ctx context.Context, filter domain.QueueFilter) (
 		}
 		s.queueCache[key] = result
 		s.queueMu.Unlock()
-		return result, nil
+		return cloneProjectQueue(result), nil
 	}
+}
+
+// cloneProjectQueue returns a deep copy of the given queue so that callers
+// cannot mutate the cached projects slice, status/risk maps, risk reasons, or
+// the LatestUpdatedAt pointer and thereby poison subsequent identical queries.
+// The cached value remains owned by the cache and is never handed out by
+// reference.
+func cloneProjectQueue(q *domain.ProjectQueue) *domain.ProjectQueue {
+	if q == nil {
+		return nil
+	}
+	clone := &domain.ProjectQueue{Projects: make([]domain.ProjectSummary, len(q.Projects)), Stats: cloneQueueStats(q.Stats)}
+	for i := range q.Projects {
+		clone.Projects[i] = cloneProjectSummary(q.Projects[i])
+	}
+	return clone
+}
+
+func cloneQueueStats(stats domain.QueueStats) domain.QueueStats {
+	statusCounts := make(map[domain.ProjectStatus]int, len(stats.StatusCounts))
+	for k, v := range stats.StatusCounts {
+		statusCounts[k] = v
+	}
+	riskCounts := make(map[domain.RiskLevel]int, len(stats.RiskCounts))
+	for k, v := range stats.RiskCounts {
+		riskCounts[k] = v
+	}
+	var latestUpdatedAt *time.Time
+	if stats.LatestUpdatedAt != nil {
+		t := *stats.LatestUpdatedAt
+		latestUpdatedAt = &t
+	}
+	return domain.QueueStats{
+		StatusCounts:       statusCounts,
+		RiskCounts:         riskCounts,
+		FailedRuleCount:    stats.FailedRuleCount,
+		OpenFindingCount:   stats.OpenFindingCount,
+		SevereFindingCount: stats.SevereFindingCount,
+		LatestUpdatedAt:    latestUpdatedAt,
+	}
+}
+
+func cloneProjectSummary(item domain.ProjectSummary) domain.ProjectSummary {
+	item.Risk = cloneProjectRisk(item.Risk)
+	return item
+}
+
+func cloneProjectRisk(risk domain.ProjectRisk) domain.ProjectRisk {
+	if risk.Reasons != nil {
+		reasons := make([]domain.RiskReason, len(risk.Reasons))
+		copy(reasons, risk.Reasons)
+		risk.Reasons = reasons
+	}
+	return risk
 }
 func (s *Service) Audit(ctx context.Context, id string, after int64, limit int) ([]domain.AuditEvent, error) {
 	return s.repo.Audit(ctx, id, after, limit)
