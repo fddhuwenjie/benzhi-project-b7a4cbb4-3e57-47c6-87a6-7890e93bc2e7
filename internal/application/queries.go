@@ -70,6 +70,9 @@ func (s *Service) ReverificationEvidenceSummary(ctx context.Context, projectID s
 					item.ErrorCategory = "snapshot_invalid"
 				}
 			} else {
+				if lifecycleErr := reverificationLifecycleError(rerr, verr); lifecycleErr != nil {
+					return nil, lifecycleErr
+				}
 				item.EvidenceStatus = "missing"
 				if snapshotErrorCategory(rerr, verr) == "snapshot_missing" {
 					item.BlockReason = "历史字幕快照缺失"
@@ -99,8 +102,9 @@ func (s *Service) ReverificationEvidenceSummary(ctx context.Context, projectID s
 }
 
 // snapshotErrorCategory 仅用于把历史快照读取失败映射为证据展示状态。
-// 当前实现把取消、超时等请求生命周期错误也归入 snapshot_invalid，
-// 上层因而会继续返回“成功”的证据汇总而丢失调用方的取消信号。
+// 调用方应先通过 reverificationLifecycleError 把取消、超时等请求生命周期
+// 错误原样向上返回，避免丢失调用方的取消信号；本函数只负责区分快照缺失
+// 与快照内容校验失败两类业务态错误。
 func snapshotErrorCategory(errs ...error) string {
 	for _, err := range errs {
 		if err == nil {
@@ -111,6 +115,25 @@ func snapshotErrorCategory(errs ...error) string {
 		}
 	}
 	return "snapshot_invalid"
+}
+
+// reverificationLifecycleError 在读取历史字幕快照期间检测请求生命周期错误。
+// 仅当存在 context.Canceled 或 context.DeadlineExceeded 时返回对应错误，以便
+// 上层通过 errors.Is 正确识别取消或超时并终止本次证据汇总，不再误标为
+// snapshot_invalid。返回 nil 表示属于其他业务态错误，按原逻辑处理。
+func reverificationLifecycleError(errs ...error) error {
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+	}
+	return nil
 }
 
 func isSnapshotMissing(err error) bool {
