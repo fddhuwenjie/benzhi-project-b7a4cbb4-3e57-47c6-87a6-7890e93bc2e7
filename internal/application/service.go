@@ -139,7 +139,11 @@ func (s *Service) CreateProject(ctx context.Context, cmd CreateProjectCommand) (
 	} else if business, ok := findErr.(*domain.BusinessError); !ok || business.Code != domain.CodeNotFound {
 		return nil, false, findErr
 	}
-	return s.repo.Create(ctx, project, cmd.RequestID, cmd.Actor)
+	result, replay, err := s.repo.Create(ctx, project, cmd.RequestID, cmd.Actor)
+	if err == nil {
+		s.invalidateWorkbenchCache(project.ID)
+	}
+	return result, replay, err
 }
 
 func (s *Service) SaveCues(ctx context.Context, projectID string, cmd SaveCuesCommand) (*domain.MutationResult, bool, error) {
@@ -560,7 +564,11 @@ func (s *Service) mutateDetailed(ctx context.Context, projectID string, meta Wri
 	if err := validateMeta(meta); err != nil {
 		return nil, false, err
 	}
-	return s.repo.Mutate(ctx, domain.Mutation{ProjectID: projectID, ExpectedRevision: meta.ExpectedRevision, RequestID: meta.RequestID, EventType: event, Actor: meta.Actor, Detail: detail}, fn)
+	result, replay, err := s.repo.Mutate(ctx, domain.Mutation{ProjectID: projectID, ExpectedRevision: meta.ExpectedRevision, RequestID: meta.RequestID, EventType: event, Actor: meta.Actor, Detail: detail}, fn)
+	if err == nil {
+		s.invalidateWorkbenchCache(projectID)
+	}
+	return result, replay, err
 }
 
 func validateMeta(meta WriteMeta) error {

@@ -91,6 +91,17 @@ func (s *Service) storeWorkbenchCache(projectID string, view *WorkbenchView) {
 	s.workbenchMu.Unlock()
 }
 
+// invalidateWorkbenchCache drops the cached workbench view for a project after a
+// committed mutation so subsequent reads rebuild it from the repository. It is
+// safe to call when no cache entry exists. The cache is keyed by project ID and
+// only the affected project is dropped, preserving isolation for concurrent
+// readers of other projects.
+func (s *Service) invalidateWorkbenchCache(projectID string) {
+	s.workbenchMu.Lock()
+	delete(s.workbenchCache, projectID)
+	s.workbenchMu.Unlock()
+}
+
 func summarizeQuality(project *domain.CaptionProject) QualitySummary {
 	summary := QualitySummary{CueCount: len(project.Cues), RulesPassed: project.CurrentChecksPassed()}
 	coveredMS := int64(0)
