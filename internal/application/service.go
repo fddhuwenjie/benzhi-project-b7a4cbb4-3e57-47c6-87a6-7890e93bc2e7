@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -135,12 +136,15 @@ func (s *Service) CreateProject(ctx context.Context, cmd CreateProjectCommand) (
 }
 
 // preflightMediaChecksum 将素材重复检查放在建档事务之外，避免真实重复请求产生副作用。
+// 仓库实现可能用 fmt.Errorf("%w", ...) 将 not_found 业务错误包裹一层或多层上下文，
+// 这里用 errors.As 透传包裹，避免把未登记素材的 not_found 误作致命错误中断建档。
 func (s *Service) preflightMediaChecksum(ctx context.Context, checksum string) error {
 	_, findErr := s.repo.FindByMediaChecksum(ctx, checksum)
 	if findErr == nil {
 		return nil
 	}
-	if business, ok := findErr.(*domain.BusinessError); ok && business.Code == domain.CodeNotFound {
+	var business *domain.BusinessError
+	if errors.As(findErr, &business) && business.Code == domain.CodeNotFound {
 		return nil
 	}
 	return findErr
