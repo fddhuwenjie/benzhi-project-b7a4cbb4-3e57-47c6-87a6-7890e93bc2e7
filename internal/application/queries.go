@@ -238,10 +238,23 @@ func (s *Service) FindingEvidence(ctx context.Context, projectID, findingID stri
 	}
 	view, err := s.findingEvidence(ctx, project, *finding)
 	if err != nil {
-		s.cacheFindingEvidenceError(cacheKey, err)
+		if cacheableFindingEvidenceError(err) {
+			s.cacheFindingEvidenceError(cacheKey, err)
+		}
 		return nil, err
 	}
 	return view, nil
+}
+
+// cacheableFindingEvidenceError reports whether an error originates from a
+// deterministic business-level condition (such as a missing snapshot or a
+// finding that has not recorded a remediation revision). Transient storage
+// failures are not cached so that a subsequent query for the same project,
+// finding and revision can re-read both the reported and resolved snapshots
+// once the underlying store has recovered.
+func cacheableFindingEvidenceError(err error) bool {
+	var business *domain.BusinessError
+	return errors.As(err, &business)
 }
 
 func findingEvidenceErrorKey(project *domain.CaptionProject, finding domain.ReviewFinding) string {
