@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>字幕发布工作台</title>
+  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/extensions.css">
+</head>
+<body>
+  <header class="topbar">
+    <div><span class="station-mark">CF</span><strong>字幕发布工作台</strong></div>
+    <div class="service-state"><span id="readyDot"></span><span id="readyText">正在连接</span></div>
+  </header>
+  <div class="app-shell">
+    <aside class="queue-pane">
+      <div class="pane-heading"><div><small>节目制作</small><h1>节目队列</h1></div><button id="newProject" class="icon-button" title="新建项目" aria-label="新建项目">＋</button></div>
+      <form id="queueFilters" class="queue-filters"><select name="status" aria-label="项目状态"><option value="">全部状态</option><option value="draft">草稿</option><option value="in_review">审校中</option><option value="changes_requested">整改中</option><option value="reverification">定向复验</option><option value="ready_for_release">待发布</option><option value="released">已发布</option></select><select name="risk" aria-label="风险等级"><option value="">全部风险</option><option value="high">高风险</option><option value="medium">中风险</option><option value="low">低风险</option></select><input name="language" placeholder="语言" maxlength="100"><input name="assignee" placeholder="责任人" maxlength="100"><select name="sort" aria-label="队列排序"><option value="risk_desc">风险优先</option><option value="severe_desc">严重问题优先</option><option value="updated_asc">最久未更新</option><option value="updated_desc">最近更新</option></select><button class="secondary">筛选</button></form>
+      <div id="queueSummary" class="queue-summary"></div>
+      <div id="projectList" class="project-list"></div>
+    </aside>
+    <main class="workspace">
+      <section id="emptyState" class="empty-state"><p>从节目队列选择项目，或建立新的素材基线。</p></section>
+      <div id="projectView" hidden>
+        <section class="project-header">
+          <div><div class="eyebrow" id="projectMeta"></div><h2 id="projectTitle"></h2></div>
+          <div class="revision-box"><span id="projectStatus"></span><small id="projectRevision"></small></div>
+        </section>
+        <nav class="tabs" aria-label="项目视图">
+          <button class="tab active" data-tab="timeline">字幕时间轴</button>
+          <button class="tab" data-tab="checks">规则检查 <span id="checkCount"></span></button>
+          <button class="tab" data-tab="review">问题审校 <span id="findingCount"></span></button>
+          <button class="tab" data-tab="release">发布与审计</button>
+        </nav>
+        <section id="timeline" class="tab-panel active">
+          <div class="section-toolbar"><div><h3>字幕母版</h3><p id="timelineHint"></p></div><div class="actions"><button id="viewDiff" class="secondary">修订差异</button><button id="shiftCues" class="secondary">批量偏移</button><button id="mergeCues" class="secondary">合并相邻字幕</button><button id="addCue" class="secondary">＋ 添加字幕段</button><button id="saveCues" class="primary">保存时间轴</button></div></div>
+          <form id="cueSearch" class="filter-bar timeline-search"><input name="keyword" placeholder="检索正文、说话人或声音说明" required><input name="start_ms" type="number" min="0" placeholder="起始 ms"><input name="end_ms" type="number" min="0" placeholder="结束 ms"><button class="secondary">检索</button></form>
+          <div id="cueSearchResults" class="query-panel" hidden></div>
+          <div id="revisionDiff" class="query-panel" hidden></div>
+          <div class="cue-head"><span>序号</span><span>起始 / 结束（ms）</span><span>说话人</span><span>字幕正文与声音说明</span><span></span></div>
+          <div id="cueList" class="cue-list"></div>
+        </section>
+        <section id="checks" class="tab-panel">
+          <div class="section-toolbar"><div><h3>可访问性规则</h3><p>检查阅读速度、说话人、声音说明格式和字幕间隔。</p></div><div class="actions"><button id="convertChecks" class="secondary">转为审校问题</button><button id="checkHistory" class="secondary">检查历史</button><button id="runChecks" class="primary">执行检查</button><button id="submitReview" class="accent">提交审校</button></div></div>
+          <div id="checkHistoryPanel" class="query-panel" hidden></div>
+          <div id="checkSummary" class="manifest"></div><div id="checkList" class="result-list"></div>
+        </section>
+        <section id="review" class="tab-panel">
+          <div class="section-toolbar"><div><h3>审校与定向复验</h3><p>问题必须关联字幕段，并保留整改所依据的字幕版本。</p></div><div class="actions"><button id="batchRemediate" class="secondary">批量整改</button><button id="batchVerify" class="secondary">批量复验</button><button id="addFinding" class="secondary">登记问题</button><button id="returnChanges" class="danger">退回整改</button><button id="submitReverify" class="accent">提交复验</button><button id="completeReverify" class="primary">完成复验</button></div></div>
+          <form id="findingFilters" class="filter-bar"><select name="status"><option value="">全部状态</option><option value="unclosed">未关闭</option><option value="open">待整改</option><option value="remediated">待复验</option><option value="resolved">已解决</option><option value="rejected">复验驳回</option></select><select name="severity"><option value="">全部严重级别</option><option value="critical">严重</option><option value="major">主要</option><option value="minor">轻微</option></select><select name="category"><option value="">全部分类</option><option value="accuracy">内容准确性</option><option value="accessibility">可访问性</option><option value="timing">时间轴</option><option value="style">制作规范</option><option value="reading_speed">阅读速度</option><option value="speaker">说话人</option><option value="sound_description">声音说明</option><option value="caption_gap">字幕间隔</option></select><input name="cue_id" placeholder="字幕段 ID"><input name="keyword" maxlength="100" placeholder="描述关键词"><select name="sort"><option value="severity_desc">严重级别优先</option><option value="timeline_asc">字幕时间顺序</option><option value="verified_desc">最近复验时间</option></select><button class="secondary">筛选</button></form>
+          <div id="findingStats" class="query-panel"></div>
+          <div id="findingList" class="result-list"></div>
+        </section>
+        <section id="release" class="tab-panel">
+          <div class="section-toolbar"><div><h3>冻结发布</h3><p>批准后将锁定当前修订，并生成可验证的发布清单。</p></div><button id="approveRelease" class="accent">批准并冻结</button></div>
+          <div id="releasePreview" class="manifest"></div><div id="manifest" class="manifest"></div><div id="verificationPackage" class="manifest"></div><div class="package-actions"><button id="refreshVerification" class="secondary">核验冻结版本</button><button id="downloadVerification" class="primary">下载核验包</button></div>
+          <h3 class="audit-title">状态时间线</h3><form id="auditFilters" class="filter-bar"><input name="actor" placeholder="操作者" maxlength="100"><select name="event_type"><option value="">全部事件</option><option value="cues.saved">保存字幕</option><option value="checks.completed">规则检查</option><option value="findings.converted_from_checks">规则转问题</option><option value="findings.remediated_batch">批量整改</option><option value="findings.verified_batch">批量复验</option><option value="release.approved">批准发布</option></select><input name="from" type="datetime-local"><input name="to" type="datetime-local"><button class="secondary">查询</button></form><div id="auditSummary" class="queue-summary"></div><div id="auditList" class="audit-list"></div><button id="auditNext" class="secondary" hidden>加载下一页</button>
+        </section>
+      </div>
+    </main>
+  </div>
+  <dialog id="projectDialog">
+    <form id="projectForm"><div class="dialog-title"><h2>建立节目素材基线</h2><button type="button" class="icon-button close" aria-label="关闭">×</button></div>
+      <div class="form-grid"><label>节目标题<input name="title" required></label><label>节目时长（ms）<input name="duration_ms" type="number" min="1" value="120000" required></label><label>语言<input name="language" value="zh-CN" required></label><label>责任人<input name="assignee" required></label><label class="wide">素材校验值（SHA-256）<input name="media_checksum" minlength="64" maxlength="64" pattern="[0-9A-Fa-f]{64}" required></label><label class="wide">制作规范<textarea name="style_profile" required>公共广播无障碍字幕规范 v1</textarea></label></div>
+      <div class="dialog-actions"><button type="button" class="secondary close">取消</button><button class="primary">建立项目</button></div>
+    </form>
+  </dialog>
+  <dialog id="findingDialog">
+    <form id="findingForm"><div class="dialog-title"><h2>登记审校问题</h2><button type="button" class="icon-button close" aria-label="关闭">×</button></div>
+      <div id="findingRows"></div><div class="dialog-actions"><button type="button" id="addFindingRow" class="secondary">继续添加</button><button type="button" class="secondary close">取消</button><button class="primary">提交整批</button></div>
+    </form>
+  </dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+  <script src="/scale.js" defer></script>
+</body>
+</html>
